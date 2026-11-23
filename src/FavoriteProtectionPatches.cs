@@ -113,6 +113,7 @@ namespace ZedZone.BetterInventory
                 try
                 {
                     dirtyList[i].RefreshOccupyData();
+                    dirtyList[i].RefreshTotalItemWeight();
                 }
                 catch (Exception ex)
                 {
@@ -567,6 +568,51 @@ namespace ZedZone.BetterInventory
         private static void Finalizer(List<FavoriteGuardHelper.StashedItem> __state)
         {
             FavoriteGuardHelper.RestoreStashed(__state);
+        }
+    }
+
+    [HarmonyPatch(typeof(InventoryPanel), nameof(InventoryPanel.CollectAllItemsToPlayer),
+        typeof(InventoryData))]
+    internal static class Patch_InventoryPanel_CollectAllItemsToPlayer_Fav
+    {
+        [HarmonyPrefix]
+        private static void Prefix(
+            InventoryData sourceInventory,
+            ref List<FavoriteGuardHelper.StashedItem> __state)
+        {
+            if (sourceInventory == null) return;
+            if (!FavoriteGuardHelper.FavoritesEnabled
+                || Plugin.ProtectFromTakeAll == null
+                || !Plugin.ProtectFromTakeAll.Value)
+                return;
+
+            try
+            {
+                __state = FavoriteGuardHelper.StashMatching(sourceInventory, ItemFavoriteManager.IsFavorite);
+            }
+            catch (Exception ex)
+            {
+                Plugin.LogOnce("take_all_fav_guard", ex);
+            }
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer(
+            InventoryPanel __instance,
+            List<FavoriteGuardHelper.StashedItem> __state)
+        {
+            if (__state == null || __state.Count == 0) return;
+            FavoriteGuardHelper.RestoreStashed(__state);
+            try
+            {
+                __instance?.Refresh();
+            }
+            catch (Exception ex)
+            {
+                Plugin.LogOnce("take_all_fav_refresh", ex);
+            }
+            Plugin.Notify("已保留容器内的收藏物品（Alt+左键可取消收藏）",
+                          "Kept favorited item(s) in container (Alt+Click to unfavorite)");
         }
     }
 

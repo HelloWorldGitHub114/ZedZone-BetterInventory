@@ -33,6 +33,7 @@ namespace ZedZone.BetterInventory
         internal static ConfigEntry<KeyCode> FavoriteModifierKey;
         internal static ConfigEntry<bool> ProtectFromQuickStack;
         internal static ConfigEntry<bool> ProtectFromDepositAll;
+        internal static ConfigEntry<bool> ProtectFromTakeAll;
         internal static ConfigEntry<bool> ProtectFromBulkGrind;
         internal static ConfigEntry<bool> ProtectFromDrop;
         internal static ConfigEntry<bool> ProtectFromDisassemble;
@@ -73,6 +74,8 @@ namespace ZedZone.BetterInventory
                 "收藏物品免受一键堆叠与存入同类影响（含联机客户端一键堆叠）。");
             ProtectFromDepositAll = Config.Bind("Favorite", "ProtectFromDepositAll", true,
                 "收藏物品免受容器“全部存入”影响。");
+            ProtectFromTakeAll = Config.Bind("Favorite", "ProtectFromTakeAll", true,
+                "收藏物品免受容器与随身套包“全部拾取 [F]”移出原位（不影响地面“附近的物品”全部拾取）。");
             ProtectFromBulkGrind = Config.Bind("Favorite", "ProtectFromBulkGrind", true,
                 "收藏物品免受粉碎机批量粉碎影响。");
             ProtectFromDrop = Config.Bind("Favorite", "ProtectFromDrop", true,
@@ -130,6 +133,7 @@ namespace ZedZone.BetterInventory
                 typeof(Patch_NearbyStorageLocator_QuickStack_Guard),
                 typeof(Patch_NetContainerSync_ClientRequestQuickStack_Guard),
                 typeof(Patch_InventoryPanel_DepositAllItemsTo_Guard),
+                typeof(Patch_InventoryPanel_CollectAllItemsToPlayer_Fav),
                 typeof(Patch_Grinder_IsBulkGrindCandidate_Fav),
                 typeof(Patch_BasicItemUI_DropItem_Fav),
                 typeof(Patch_BasicItemUI_DropDraggingGroup_Fav),
