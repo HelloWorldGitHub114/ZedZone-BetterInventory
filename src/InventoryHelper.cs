@@ -263,12 +263,29 @@ namespace ZedZone.BetterInventory
         }
 
         /// <summary>
-        /// 判断一个容器是否属于本地玩家的随身容器（主背包、衣服口袋或随身套包）。
+        /// 判断一个容器是否就是角色主背包本身。
         /// </summary>
         internal static bool IsPlayerMainInventory(InventoryData inv)
         {
             var cd = LocalPlayer?.characterData;
             return cd != null && inv != null && Same(cd.inventoryData, inv);
+        }
+
+        /// <summary>
+        /// 判断一个容器是否属于本地玩家的随身容器（主背包、衣服口袋或随身多层套包）。
+        /// </summary>
+        internal static bool IsPlayerCarriedInventory(InventoryData inv)
+        {
+            var cd = LocalPlayer?.characterData;
+            if (cd == null || inv == null) return false;
+
+            var carried = CollectPlayerCarriedInventories(cd, includeNested: true);
+            for (int i = 0; i < carried.Count; i++)
+            {
+                if (Same(carried[i], inv))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

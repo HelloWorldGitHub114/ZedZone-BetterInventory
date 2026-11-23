@@ -19,7 +19,7 @@ namespace ZedZone.BetterInventory
     {
         public const string PluginGuid = "zedzone.betterinventory";
         public const string PluginName = "Better Inventory";
-        public const string PluginVersion = "1.1.1";
+        public const string PluginVersion = "1.1.2";
 
         internal static ManualLogSource Logs;
 
@@ -42,6 +42,7 @@ namespace ZedZone.BetterInventory
         // 拾取优先级与容器过滤设置
         internal static ConfigEntry<bool> EnablePickupRouting;
         internal static ConfigEntry<bool> RouteIntoNestedBags;
+        internal static ConfigEntry<bool> RouteDisassembleProducts;
         internal static ConfigEntry<bool> PreferExistingStack;
         internal static ConfigEntry<bool> ApplyFilterOnQuickStack;
         internal static ConfigEntry<bool> ApplyFilterOnDepositAll;
@@ -87,6 +88,8 @@ namespace ZedZone.BetterInventory
                 "启用按容器优先级与过滤器自动分配拾取物品。");
             RouteIntoNestedBags = Config.Bind("FilterAndPriority", "RouteIntoNestedBags", true,
                 "拾取物品时也将身上套包内的子背包纳入筛选与优先级路由。");
+            RouteDisassembleProducts = Config.Bind("FilterAndPriority", "RouteDisassembleProducts", true,
+                "在主背包或随身子包内拆解物品时，产生的材料也自动按容器筛选与优先级分拣进对应背包或口袋。");
             PreferExistingStack = Config.Bind("FilterAndPriority", "PreferExistingStack", true,
                 "同一优先级与匹配级别下，优先堆叠到已有同款物品的容器。");
             ApplyFilterOnQuickStack = Config.Bind("FilterAndPriority", "ApplyFilterOnQuickStack", true,
@@ -156,6 +159,9 @@ namespace ZedZone.BetterInventory
 
                 // 拾取优先级与容器过滤
                 typeof(Patch_BasicCharacterController_AddItemToCharacter_Routing),
+                typeof(Patch_InventoryPanel_CollectAllItemsToPlayer_Scope),
+                typeof(Patch_BasicItemUI_Disassemble_Internal_Scope),
+                typeof(Patch_InventoryData_TryAddItem_DisassembleRouting),
                 typeof(Patch_InventoryData_TryAddItem_QuickStackFilter),
                 typeof(Patch_InventoryData_PassesFeatureLimit_Strict),
 
