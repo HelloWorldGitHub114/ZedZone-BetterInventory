@@ -121,6 +121,63 @@ namespace ZedZone.BetterInventory
             }
         }
 
+        /// <summary>
+        /// 取消当前正在进行的拖拽并安全还原物品回源容器。
+        /// 原版 BasicItemUI.OnBeginDrag 会提前将拖动物品从非地面源容器列表中移除并暂存至 itemdataTemp，
+        /// 因此在拖拽丢弃或交易路径拦截时必须执行完整取消归位，防止物品从背包凭空消失。
+        /// </summary>
+        internal static void CancelActiveDragAndRestore(BasicItemUI ui)
+        {
+            if (ui == null) return;
+            bool prevInCustom = PickupRoutingState.InCustomAdd;
+            PickupRoutingState.InCustomAdd = true;
+            try
+            {
+                // 1. 若处于拖拽状态（itemdataTemp 非空），通过原版 CancelDragInPlace 合并拆分余量并归位
+                if (ui.itemdataTemp != null)
+                {
+                    ui.CancelDragInPlace();
+                }
+
+                // 2. 防御性兜底：若 CancelDragInPlace 后物品仍不在非地面源容器中，直接调用 RestoreOrDrop 归位
+                var panel = ui.inventoryPanel;
+                var inv = panel != null ? panel.inventoryData : null;
+                bool isGroundPanel = panel != null && panel.TryCast<NearbyItemInventoryPanel>() != null;
+                if (!isGroundPanel && inv != null && ui.itemdata != null && !ui.IsItemStillInSource())
+                {
+                    inv.RestoreOrDrop(ui.itemdata);
+                }
+
+                ui.splitDragFlag = false;
+
+                // 3. 归位食物/工具分组成员与框选多拖成员
+                if (ui.draggingGroupMembers != null && ui.draggingGroupMembers.Count > 0)
+                    ui.RestoreDraggingGroupMembers();
+
+                if (ui.multiDragMembers != null && ui.multiDragMembers.Count > 0)
+                {
+                    ui.RestoreMultiMembers();
+                    ui.EndMultiDrag();
+                }
+
+                if (!isGroundPanel && inv != null)
+                {
+                    inv.RefreshOccupyData();
+                    inv.RefreshTotalItemWeight();
+                }
+
+                panel?.Refresh();
+            }
+            catch (Exception ex)
+            {
+                Plugin.LogOnce("cancel_drag_restore", ex);
+            }
+            finally
+            {
+                PickupRoutingState.InCustomAdd = prevInCustom;
+            }
+        }
+
         private static bool ContainsByPtr(Il2CppSystem.Collections.Generic.List<ItemData> list, ItemData target)
         {
             IntPtr targetPtr = InventoryHelper.Ptr(target);
@@ -540,12 +597,14 @@ namespace ZedZone.BetterInventory
         {
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromDrop == null || !Plugin.ProtectFromDrop.Value) return true;
-            if (__instance == null || !ItemFavoriteManager.IsUIFavorited(__instance)) return true;
+            if (__instance == null) return true;
+            if (!ItemFavoriteManager.IsUIFavorited(__instance)
+                && !ItemFavoriteManager.HasAnyFavoritedMultiDragMember(__instance))
+                return true;
 
             try
             {
-                if (__instance.splitDragFlag)
-                    __instance.RestoreSplitRemainder();
+                FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
                 __instance.CloseItemOptions();
                 Plugin.Notify("物品已收藏，无法丢弃（Alt+左键可取消收藏）",
                               "Favorited item cannot be dropped (Alt+Click to unfavorite)");
@@ -576,7 +635,7 @@ namespace ZedZone.BetterInventory
             {
                 if (ItemFavoriteManager.IsFavorite(members[i]))
                 {
-                    __instance.RestoreDraggingGroupMembers();
+                    FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
                     Plugin.Notify("包含已收藏物品，已取消丢弃", "Contains favorited item; drop cancelled");
                     return false;
                 }
@@ -603,13 +662,47 @@ namespace ZedZone.BetterInventory
                 var m = members[i];
                 if (m != null && ItemFavoriteManager.IsFavorite(m.item))
                 {
-                    __instance.RestoreMultiMembers();
+                    FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
                     Plugin.Notify("框选物品中包含已收藏物品，已取消丢弃",
                                   "Selection contains favorited item; drop cancelled");
                     return false;
                 }
             }
             return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(BasicItemUI), nameof(BasicItemUI.DropOn_MultiOnPanel),
+        typeof(PointerEventData), typeof(InventoryPanel))]
+    internal static class Patch_BasicItemUI_DropOn_MultiOnPanel_Fav
+    {
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.High)]
+        private static bool Prefix(BasicItemUI __instance, InventoryPanel m_targetPanel, ref bool __result)
+        {
+            if (!FavoriteGuardHelper.FavoritesEnabled) return true;
+            if (Plugin.ProtectFromDrop == null || !Plugin.ProtectFromDrop.Value) return true;
+            if (__instance == null || m_targetPanel == null) return true;
+            if (m_targetPanel.TryCast<NearbyItemInventoryPanel>() == null) return true;
+
+            if (!ItemFavoriteManager.IsUIFavorited(__instance)
+                && !ItemFavoriteManager.HasAnyFavoritedMultiDragMember(__instance))
+                return true;
+
+            try
+            {
+                FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
+                __instance.multiDropBlockedFrame = Time.frameCount;
+                Plugin.Notify("框选物品中包含已收藏物品，已取消丢弃",
+                              "Selection contains favorited item; drop cancelled");
+                __result = true;
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Plugin.LogOnce("drop_multi_panel_fav", ex);
+                return true;
+            }
         }
     }
 
@@ -669,13 +762,16 @@ namespace ZedZone.BetterInventory
         {
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromSell == null || !Plugin.ProtectFromSell.Value) return true;
-            if (__instance == null || dropObj == null || !ItemFavoriteManager.IsUIFavorited(__instance)) return true;
+            if (__instance == null || dropObj == null) return true;
+            if (!ItemFavoriteManager.IsUIFavorited(__instance)
+                && !ItemFavoriteManager.HasAnyFavoritedMultiDragMember(__instance))
+                return true;
 
             try
             {
                 if (dropObj.GetComponentInParent<TradePanel>() == null) return true;
 
-                __instance.RestoreDraggedItemToSource();
+                FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
                 Plugin.Notify("物品已收藏，无法出售（Alt+左键可取消收藏）",
                               "Favorited item cannot be sold (Alt+Click to unfavorite)");
                 __result = true;
@@ -686,6 +782,23 @@ namespace ZedZone.BetterInventory
                 Plugin.LogOnce("drop_trade_fav", ex);
                 return true;
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(InventoryData), nameof(InventoryData.RestoreOrDrop), typeof(ItemData))]
+    internal static class Patch_InventoryData_RestoreOrDrop_Guard
+    {
+        [HarmonyPrefix]
+        private static void Prefix(out bool __state)
+        {
+            __state = PickupRoutingState.InCustomAdd;
+            PickupRoutingState.InCustomAdd = true;
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer(bool __state)
+        {
+            PickupRoutingState.InCustomAdd = __state;
         }
     }
 

@@ -19,7 +19,7 @@ namespace ZedZone.BetterInventory
     {
         public const string PluginGuid = "zedzone.betterinventory";
         public const string PluginName = "Better Inventory";
-        public const string PluginVersion = "1.1.0";
+        public const string PluginVersion = "1.1.1";
 
         internal static ManualLogSource Logs;
 
@@ -131,9 +131,11 @@ namespace ZedZone.BetterInventory
                 typeof(Patch_BasicItemUI_DropItem_Fav),
                 typeof(Patch_BasicItemUI_DropDraggingGroup_Fav),
                 typeof(Patch_BasicItemUI_DropMulti_Fav),
+                typeof(Patch_BasicItemUI_DropOn_MultiOnPanel_Fav),
                 typeof(Patch_BasicItemUI_Disassemble_Fav),
                 typeof(Patch_NearbyItemInventoryPanel_DisassembleAll_Fav),
                 typeof(Patch_BasicItemUI_DropOn_Trade_Fav),
+                typeof(Patch_InventoryData_RestoreOrDrop_Guard),
                 typeof(Patch_BasicItemUI_QuickTransfer_Fav),
                 typeof(Patch_NPCInteractController_GetAllCharacterItems_Fav),
                 typeof(Patch_NPCInteractController_GetTotalItemNumber_Fav),

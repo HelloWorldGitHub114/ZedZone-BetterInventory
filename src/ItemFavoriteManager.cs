@@ -107,6 +107,31 @@ namespace ZedZone.BetterInventory
                     if (IsFavorite(group[i])) return true;
                 }
             }
+
+            var dragGroup = ui.draggingGroupMembers;
+            if (dragGroup != null && dragGroup.Count > 0)
+            {
+                for (int i = 0; i < dragGroup.Count; i++)
+                {
+                    if (IsFavorite(dragGroup[i])) return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool HasAnyFavoritedMultiDragMember(BasicItemUI ui)
+        {
+            if (ui == null) return false;
+            var members = ui.multiDragMembers;
+            if (members == null || members.Count == 0) return false;
+
+            for (int i = 0; i < members.Count; i++)
+            {
+                var m = members[i];
+                if (m != null && IsFavorite(m.item))
+                    return true;
+            }
             return false;
         }
 
