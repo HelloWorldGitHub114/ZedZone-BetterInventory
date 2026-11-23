@@ -16,9 +16,10 @@ namespace ZedZone.BetterInventory
         [ThreadStatic]
         internal static int QuickStackFilterDepth;
 
-        // 正在对随身子包/口袋执行“全部拾取 [F]”时的源容器，路由时必须排除它本身，避免物品原地塞回
+        // 从某个随身子包/口袋往玩家身上拿取（全部拾取[F]、右键拿取、Alt/Ctrl+右键拆分拿取）时的源容器，
+        // 路由时必须排除它本身，避免物品因为同款堆叠或优先规则原地塞回原包
         [ThreadStatic]
-        internal static InventoryData CollectAllSourceInventory;
+        internal static InventoryData ExcludedSourceInventory;
 
         // 在随身容器内右键拆解物品时记录源容器，供产物 TryAddItem 阶段改走智能分拣
         [ThreadStatic]
@@ -117,7 +118,7 @@ namespace ZedZone.BetterInventory
 
                 if (!anyCustomRule
                     && !includeNested
-                    && PickupRoutingState.CollectAllSourceInventory == null
+                    && PickupRoutingState.ExcludedSourceInventory == null
                     && PickupRoutingState.DisassembleSourceInventory == null)
                     return true;
 
@@ -129,9 +130,9 @@ namespace ZedZone.BetterInventory
                     var inv = allInventories[i];
                     if (inv == null || inv.isLocked) continue;
 
-                    // 全部拾取 [F] 时跳过正在被清空的源容器自身，避免因同款堆叠或默认优先级被原地塞回
-                    if (PickupRoutingState.CollectAllSourceInventory != null
-                        && InventoryHelper.Same(inv, PickupRoutingState.CollectAllSourceInventory))
+                    // 从随身子包/口袋往外拿取时跳过该源容器自身，避免因同款堆叠或默认优先级被原地塞回
+                    if (PickupRoutingState.ExcludedSourceInventory != null
+                        && InventoryHelper.Same(inv, PickupRoutingState.ExcludedSourceInventory))
                         continue;
 
                     // 防止背包套进自己或自己的子背包
@@ -325,14 +326,60 @@ namespace ZedZone.BetterInventory
         [HarmonyPrefix]
         private static void Prefix(InventoryData sourceInventory, out InventoryData __state)
         {
-            __state = PickupRoutingState.CollectAllSourceInventory;
-            PickupRoutingState.CollectAllSourceInventory = sourceInventory;
+            __state = PickupRoutingState.ExcludedSourceInventory;
+            PickupRoutingState.ExcludedSourceInventory = sourceInventory;
         }
 
         [HarmonyFinalizer]
         private static void Finalizer(InventoryData __state)
         {
-            PickupRoutingState.CollectAllSourceInventory = __state;
+            PickupRoutingState.ExcludedSourceInventory = __state;
+        }
+    }
+
+    /// <summary>
+    /// 在玩家右键拿取子背包/容器内物品（BasicItemUI.TakeItemToPlayerFromSource）期间
+    /// 排除该源容器自身，防止物品被路由塞回原包还弹出“已添加到背包”的假象。
+    /// </summary>
+    [HarmonyPatch(typeof(BasicItemUI), nameof(BasicItemUI.TakeItemToPlayerFromSource))]
+    internal static class Patch_BasicItemUI_TakeItemToPlayerFromSource_Scope
+    {
+        [HarmonyPrefix]
+        private static void Prefix(BasicItemUI __instance, out InventoryData __state)
+        {
+            __state = PickupRoutingState.ExcludedSourceInventory;
+            var inv = __instance?.inventoryPanel?.inventoryData;
+            if (inv != null)
+                PickupRoutingState.ExcludedSourceInventory = inv;
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer(InventoryData __state)
+        {
+            PickupRoutingState.ExcludedSourceInventory = __state;
+        }
+    }
+
+    /// <summary>
+    /// 在玩家按 Alt+右键（只拿 1 个）或 Ctrl+右键（拿一半）从子背包/容器拆分拿取期间
+    /// 排除该源容器自身，防止拆出来的数量被 PreferExistingStack 立刻合并回原堆叠。
+    /// </summary>
+    [HarmonyPatch(typeof(BasicItemUI), nameof(BasicItemUI.TryHandleSplitQuickTransferClick))]
+    internal static class Patch_BasicItemUI_TryHandleSplitQuickTransferClick_Scope
+    {
+        [HarmonyPrefix]
+        private static void Prefix(BasicItemUI __instance, out InventoryData __state)
+        {
+            __state = PickupRoutingState.ExcludedSourceInventory;
+            var inv = __instance?.inventoryPanel?.inventoryData;
+            if (inv != null)
+                PickupRoutingState.ExcludedSourceInventory = inv;
+        }
+
+        [HarmonyFinalizer]
+        private static void Finalizer(InventoryData __state)
+        {
+            PickupRoutingState.ExcludedSourceInventory = __state;
         }
     }
 

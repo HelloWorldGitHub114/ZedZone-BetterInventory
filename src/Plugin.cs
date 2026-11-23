@@ -164,6 +164,8 @@ namespace ZedZone.BetterInventory
                 // 拾取优先级与容器过滤
                 typeof(Patch_BasicCharacterController_AddItemToCharacter_Routing),
                 typeof(Patch_InventoryPanel_CollectAllItemsToPlayer_Scope),
+                typeof(Patch_BasicItemUI_TakeItemToPlayerFromSource_Scope),
+                typeof(Patch_BasicItemUI_TryHandleSplitQuickTransferClick_Scope),
                 typeof(Patch_BasicItemUI_Disassemble_Internal_Scope),
                 typeof(Patch_InventoryData_TryAddItem_DisassembleRouting),
                 typeof(Patch_InventoryData_TryAddItem_QuickStackFilter),
