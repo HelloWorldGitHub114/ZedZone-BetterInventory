@@ -127,7 +127,7 @@ namespace ZedZone.BetterInventory
         }
 
         /// <summary>
-        /// 在目标容器窗口的底栏（若存在 InventoryButtonRow）或 titleRect 中创建/刷新紧凑的“筛选/优先级”按钮。
+        /// 在目标容器窗口的底栏（InventoryButtonRow / LootInventoryPanel 底部按钮行）或回退至 titleRect 创建/刷新“筛选/优先级”按钮。
         /// </summary>
         internal static void AttachOrRefreshHeaderButton(
             InventoryPanel panel,
@@ -141,19 +141,33 @@ namespace ZedZone.BetterInventory
             var buttonRow = panel.GetComponent<InventoryButtonRow>();
             RectTransform barRect = buttonRow != null ? buttonRow.barRect : null;
 
+            // 跳过地面伪容器与粉碎机模式
+            if (panel.TryCast<NearbyItemInventoryPanel>() != null) return;
+            var lootPanel = panel.TryCast<LootInventoryPanel>();
+
+            RectTransform refBottomBtn = null;
+            RectTransform lootBottomParent = null;
+            if (lootPanel != null)
+            {
+                if (lootPanel.depositAllButtonRT != null && lootPanel.depositAllButtonRT.gameObject.activeInHierarchy)
+                    refBottomBtn = lootPanel.depositAllButtonRT;
+                else if (lootPanel.collectAllButtonRT != null && lootPanel.collectAllButtonRT.gameObject.activeInHierarchy)
+                    refBottomBtn = lootPanel.collectAllButtonRT;
+
+                if (refBottomBtn != null)
+                    lootBottomParent = refBottomBtn.parent != null ? refBottomBtn.parent.TryCast<RectTransform>() : null;
+            }
+
             if (Plugin.ShowContainerHeaderButton == null || !Plugin.ShowContainerHeaderButton.Value)
             {
-                HideExistingHeaderButtons(titleRect, barRect);
+                HideExistingHeaderButtons(titleRect, barRect, lootBottomParent);
                 RestoreHeaderTitleText(titleRect);
                 return;
             }
 
-            // 跳过地面伪容器与粉碎机模式
-            if (panel.TryCast<NearbyItemInventoryPanel>() != null) return;
-            var lootPanel = panel.TryCast<LootInventoryPanel>();
             if (lootPanel != null && lootPanel.IsGrinderMode)
             {
-                HideExistingHeaderButtons(titleRect, barRect);
+                HideExistingHeaderButtons(titleRect, barRect, lootBottomParent);
                 RestoreHeaderTitleText(titleRect);
                 return;
             }
@@ -165,18 +179,11 @@ namespace ZedZone.BetterInventory
 
             try
             {
-                bool hasActiveBar = barRect != null && barRect.gameObject.activeInHierarchy;
-                float barLeftAvail = 0f;
-                float barRefH = 0f;
-                if (hasActiveBar)
-                    barLeftAvail = ComputeBarLeftAvailableWidth(barRect, out barRefH);
+                bool dockInBar = barRect != null && barRect.gameObject.activeInHierarchy;
+                bool dockInLootBottom = !dockInBar && refBottomBtn != null && lootBottomParent != null && refBottomBtn.gameObject.activeInHierarchy;
 
-                // 子背包/衣服口袋拥有底栏（↑ ↑ ↓ 🔒）时优先停靠底栏最左侧空位，彻底释放窄标题栏空间
-                bool dockInBar = hasActiveBar && (barRect.rect.width <= 1f || barLeftAvail >= 16f);
-
-                RectTransform targetParent = dockInBar ? barRect : titleRect;
-                RectTransform otherParent = dockInBar ? titleRect : barRect;
-                GameObject btnGO = FindOrCreateHeaderButton(targetParent, otherParent);
+                RectTransform targetParent = dockInBar ? barRect : (dockInLootBottom ? lootBottomParent : titleRect);
+                GameObject btnGO = FindOrCreateHeaderButton(targetParent, titleRect, barRect, lootBottomParent);
                 if (btnGO == null) return;
 
                 if (!btnGO.activeSelf) btnGO.SetActive(true);
@@ -192,8 +199,10 @@ namespace ZedZone.BetterInventory
 
                 if (dockInBar)
                 {
-                    float barWidth = barRect.rect.width;
-                    bool isNarrow = barWidth <= 1f || barLeftAvail < 40f;
+                    TryMeasureBarButtons(barRect, out float minChildLocalLeftX, out float barCenterY, out float barRefH);
+                    float freeLeftInBar = minChildLocalLeftX - barRect.rect.xMin;
+                    bool isNarrow = barRect.rect.width <= 1f || freeLeftInBar < 40f;
+
                     string displayLabel = label;
                     if (isNarrow && !hasCustom)
                         displayLabel = Plugin.L("筛", "F");
@@ -211,24 +220,82 @@ namespace ZedZone.BetterInventory
                         outline.effectColor = hasCustom ? BtnActiveBorder : BtnDefaultBorder;
 
                     float desiredWidth = ComputeCompactButtonWidth(displayLabel, isNarrow);
-                    if (barWidth > 1f)
-                        desiredWidth = Mathf.Clamp(desiredWidth, 16f, Mathf.Max(16f, barLeftAvail));
-                    else
-                        desiredWidth = Mathf.Clamp(desiredWidth, 16f, 34f);
-
                     float btnHeight = barRefH > 1f ? Mathf.Clamp(barRefH, 12f, 16f) : 13f;
+                    float targetLocalLeftX = (freeLeftInBar >= desiredWidth + 4f)
+                        ? (barRect.rect.xMin + 2f)
+                        : (minChildLocalLeftX - desiredWidth - 3f);
+
                     rt.anchorMin = new Vector2(0f, 0.5f);
                     rt.anchorMax = new Vector2(0f, 0.5f);
                     rt.pivot = new Vector2(0f, 0.5f);
                     rt.sizeDelta = new Vector2(desiredWidth, btnHeight);
-                    rt.anchoredPosition = new Vector2(2f, 0f);
+                    rt.localScale = Vector3.one;
+                    rt.localPosition = new Vector3(targetLocalLeftX, barCenterY, 0f);
 
                     // 按钮已在底栏停靠，还原标题栏原本文本宽度
                     RestoreHeaderTitleText(titleRect);
                 }
+                else if (dockInLootBottom)
+                {
+                    if (txt != null)
+                    {
+                        txt.text = label;
+                        txt.fontSize = 11;
+                        txt.resizeTextMaxSize = 11;
+                        txt.color = hasCustom ? BtnActiveText : BtnDefaultText;
+                    }
+                    if (img != null)
+                        img.color = hasCustom ? BtnActiveBg : BtnDefaultBg;
+                    if (outline != null)
+                        outline.effectColor = hasCustom ? BtnActiveBorder : BtnDefaultBorder;
+
+                    Vector3 refWorldCenter = refBottomBtn.TransformPoint(new Vector3(refBottomBtn.rect.center.x, refBottomBtn.rect.center.y, 0f));
+                    Vector3 refLocalCenter = lootBottomParent.InverseTransformPoint(refWorldCenter);
+                    float localCenterY = refLocalCenter.y;
+                    float btnHeight = refBottomBtn.rect.height > 1f ? Mathf.Clamp(refBottomBtn.rect.height, 14f, 24f) : 18f;
+
+                    Vector3 worldPanelLeft = titleRect.TransformPoint(new Vector3(titleRect.rect.xMin, titleRect.rect.center.y, 0f));
+                    float panelLeftLocalX = lootBottomParent.InverseTransformPoint(worldPanelLeft).x;
+
+                    float minBottomBtnLocalLeftX = float.PositiveInfinity;
+                    RectTransform[] rowBtns = new[]
+                    {
+                        lootPanel.depositAllButtonRT,
+                        lootPanel.collectAllButtonRT,
+                        lootPanel.depositSameButtonRT
+                    };
+                    for (int i = 0; i < rowBtns.Length; i++)
+                    {
+                        var b = rowBtns[i];
+                        if (b == null || !b.gameObject.activeInHierarchy || b.rect.width <= 0.5f) continue;
+                        Vector3 wLeft = b.TransformPoint(new Vector3(b.rect.xMin, b.rect.center.y, 0f));
+                        Vector3 lLeft = lootBottomParent.InverseTransformPoint(wLeft);
+                        if (Mathf.Abs(lLeft.y - localCenterY) <= btnHeight * 0.65f)
+                            minBottomBtnLocalLeftX = Mathf.Min(minBottomBtnLocalLeftX, lLeft.x);
+                    }
+                    if (float.IsPositiveInfinity(minBottomBtnLocalLeftX))
+                    {
+                        Vector3 wLeft = refBottomBtn.TransformPoint(new Vector3(refBottomBtn.rect.xMin, refBottomBtn.rect.center.y, 0f));
+                        minBottomBtnLocalLeftX = lootBottomParent.InverseTransformPoint(wLeft).x;
+                    }
+
+                    float desiredWidth = Mathf.Max(36f, ComputeCompactButtonWidth(label, false));
+                    float targetLocalLeftX = (minBottomBtnLocalLeftX - panelLeftLocalX >= desiredWidth + 6f)
+                        ? (panelLeftLocalX + 2f)
+                        : (minBottomBtnLocalLeftX - desiredWidth - 4f);
+
+                    rt.anchorMin = refBottomBtn.anchorMin;
+                    rt.anchorMax = refBottomBtn.anchorMax;
+                    rt.pivot = new Vector2(0f, 0.5f);
+                    rt.sizeDelta = new Vector2(desiredWidth, btnHeight);
+                    rt.localScale = Vector3.one;
+                    rt.localPosition = new Vector3(targetLocalLeftX, localCenterY, 0f);
+
+                    RestoreHeaderTitleText(titleRect);
+                }
                 else
                 {
-                    // 按原版右侧按钮的真实边界计算停靠位置，避免遮挡“整理”或关闭按钮
+                    // 无底栏容器的兜底方案：停靠标题栏右侧原版按钮左邻
                     float rightInset = ComputeRightInset(titleRect, autosortRect, closeRect, out float refHeight);
                     float titleWidth = titleRect.rect.width;
                     bool isNarrow = titleWidth > 1f && (titleWidth - rightInset) < 78f;
@@ -252,7 +319,6 @@ namespace ZedZone.BetterInventory
                     float desiredWidth = ComputeCompactButtonWidth(displayLabel, isNarrow);
                     if (titleWidth > 1f)
                     {
-                        // 至少给左侧容器名保留可读空间，避免极窄窗口把标题完全盖掉
                         float maxAllowed = Mathf.Max(18f, titleWidth - rightInset - 34f);
                         desiredWidth = Mathf.Min(desiredWidth, maxAllowed);
                     }
@@ -262,9 +328,9 @@ namespace ZedZone.BetterInventory
                     rt.anchorMax = new Vector2(1f, 0.5f);
                     rt.pivot = new Vector2(1f, 0.5f);
                     rt.sizeDelta = new Vector2(desiredWidth, btnHeight);
+                    rt.localScale = Vector3.one;
                     rt.anchoredPosition = new Vector2(-rightInset, 0f);
 
-                    // 收窄标题栏左侧原版文字的右边界，防止与右侧筛选按钮重叠
                     ConstrainHeaderTitleText(titleRect, rightInset + desiredWidth + 3f);
                 }
 
@@ -288,46 +354,59 @@ namespace ZedZone.BetterInventory
             }
         }
 
-        private static void HideExistingHeaderButtons(RectTransform titleRect, RectTransform barRect)
+        private static void HideExistingHeaderButtons(params RectTransform[] parents)
         {
-            if (titleRect != null)
+            if (parents == null) return;
+            for (int i = 0; i < parents.Length; i++)
             {
-                Transform t = titleRect.Find(HeaderButtonName);
-                if (t != null && t.gameObject.activeSelf) t.gameObject.SetActive(false);
-            }
-            if (barRect != null)
-            {
-                Transform b = barRect.Find(HeaderButtonName);
-                if (b != null && b.gameObject.activeSelf) b.gameObject.SetActive(false);
+                RectTransform p = parents[i];
+                if (p == null) continue;
+                Transform t = p.Find(HeaderButtonName);
+                if (t != null && t.gameObject.activeSelf)
+                    t.gameObject.SetActive(false);
             }
         }
 
-        private static GameObject FindOrCreateHeaderButton(RectTransform targetParent, RectTransform otherParent)
+        private static GameObject FindOrCreateHeaderButton(RectTransform targetParent, params RectTransform[] candidateParents)
         {
             Transform existing = targetParent != null ? targetParent.Find(HeaderButtonName) : null;
-            Transform moved = existing == null && otherParent != null ? otherParent.Find(HeaderButtonName) : null;
-            if (moved != null)
+            if (candidateParents != null)
             {
-                moved.SetParent(targetParent, false);
-                return moved.gameObject;
-            }
-            if (otherParent != null && existing != null)
-            {
-                Transform dup = otherParent.Find(HeaderButtonName);
-                if (dup != null && dup.gameObject.activeSelf) dup.gameObject.SetActive(false);
+                for (int i = 0; i < candidateParents.Length; i++)
+                {
+                    RectTransform p = candidateParents[i];
+                    if (p == null || p == targetParent) continue;
+                    Transform other = p.Find(HeaderButtonName);
+                    if (other == null) continue;
+
+                    if (existing == null)
+                    {
+                        other.SetParent(targetParent, false);
+                        existing = other;
+                    }
+                    else if (other.gameObject.activeSelf)
+                    {
+                        other.gameObject.SetActive(false);
+                    }
+                }
             }
             return existing != null ? existing.gameObject : CreateHeaderButton(targetParent);
         }
 
-        private static float ComputeBarLeftAvailableWidth(RectTransform barRect, out float referenceHeight)
+        private static void TryMeasureBarButtons(
+            RectTransform barRect,
+            out float minChildLocalLeftX,
+            out float centerY,
+            out float referenceHeight)
         {
+            minChildLocalLeftX = barRect != null ? barRect.rect.xMax - 65f : 0f;
+            centerY = barRect != null ? barRect.rect.center.y : 0f;
             referenceHeight = 0f;
-            if (barRect == null) return 0f;
+            if (barRect == null) return;
 
             float barWidth = barRect.rect.width;
-            if (barWidth <= 1f) return 0f;
-
-            float minChildLeft = barWidth;
+            float measuredLeft = float.PositiveInfinity;
+            float measuredCenterY = centerY;
             bool foundButton = false;
 
             for (int i = 0; i < barRect.childCount; i++)
@@ -344,21 +423,24 @@ namespace ZedZone.BetterInventory
 
                 Vector3 worldLeft = childRT.TransformPoint(new Vector3(childRT.rect.xMin, childRT.rect.center.y, 0f));
                 Vector3 localLeft = barRect.InverseTransformPoint(worldLeft);
-                float leftFromBarLeft = localLeft.x - barRect.rect.xMin;
-                if (leftFromBarLeft >= -2f && leftFromBarLeft <= barWidth + 2f)
+                if (barWidth <= 1f || (localLeft.x >= barRect.rect.xMin - 8f && localLeft.x <= barRect.rect.xMax + 8f))
                 {
-                    minChildLeft = Mathf.Min(minChildLeft, leftFromBarLeft);
+                    if (localLeft.x < measuredLeft)
+                    {
+                        measuredLeft = localLeft.x;
+                        measuredCenterY = localLeft.y;
+                    }
                     if (childRT.rect.height > 1f)
                         referenceHeight = Mathf.Max(referenceHeight, childRT.rect.height);
                     foundButton = true;
                 }
             }
 
-            if (!foundButton)
-                return Mathf.Max(0f, barWidth - 68f);
-
-            // 左边距 2px，与右侧原版功能按钮之间留 3px 间距
-            return Mathf.Max(0f, minChildLeft - 5f);
+            if (foundButton)
+            {
+                minChildLocalLeftX = measuredLeft;
+                centerY = measuredCenterY;
+            }
         }
 
         private static void ConstrainHeaderTitleText(RectTransform titleRect, float reservedRightPx)
@@ -1373,6 +1455,16 @@ namespace ZedZone.BetterInventory
         }
     }
 
+    [HarmonyPatch(typeof(PlayerInventoryPanel), nameof(PlayerInventoryPanel.Refresh))]
+    internal static class Patch_PlayerInventoryPanel_Refresh_UI
+    {
+        [HarmonyPostfix]
+        private static void Postfix(PlayerInventoryPanel __instance)
+        {
+            ContainerFilterUI.RefreshPanelHeader(__instance);
+        }
+    }
+
     [HarmonyPatch(typeof(LootInventoryPanel), nameof(LootInventoryPanel.Refresh))]
     internal static class Patch_LootInventoryPanel_Refresh_UI
     {
@@ -1385,6 +1477,16 @@ namespace ZedZone.BetterInventory
 
     [HarmonyPatch(typeof(LootInventoryPanel), nameof(LootInventoryPanel.SetTitle), typeof(string))]
     internal static class Patch_LootInventoryPanel_SetTitle_UI
+    {
+        [HarmonyPostfix]
+        private static void Postfix(LootInventoryPanel __instance)
+        {
+            ContainerFilterUI.RefreshPanelHeader(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(LootInventoryPanel), nameof(LootInventoryPanel.LayoutBottomButtons))]
+    internal static class Patch_LootInventoryPanel_LayoutBottomButtons_UI
     {
         [HarmonyPostfix]
         private static void Postfix(LootInventoryPanel __instance)

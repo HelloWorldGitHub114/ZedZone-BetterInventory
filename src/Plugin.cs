@@ -160,10 +160,12 @@ namespace ZedZone.BetterInventory
                 // 框选多物品直接拖进闭合背包图标
                 typeof(Patch_BasicItemUI_DropOn_Multi_IntoBag),
 
-                // 容器规则标题栏入口与弹窗生命周期
+                // 容器规则入口与弹窗生命周期
                 typeof(Patch_PlayerInventoryPanel_LayoutChrome_UI),
+                typeof(Patch_PlayerInventoryPanel_Refresh_UI),
                 typeof(Patch_LootInventoryPanel_Refresh_UI),
                 typeof(Patch_LootInventoryPanel_SetTitle_UI),
+                typeof(Patch_LootInventoryPanel_LayoutBottomButtons_UI),
                 typeof(Patch_CommonInventoryPanel_Refresh_UI),
                 typeof(Patch_CommonInventoryPanel_RefreshTitle_UI),
                 typeof(Patch_InventoryButtonRow_Layout_UI),
