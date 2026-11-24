@@ -175,7 +175,7 @@ namespace ZedZone.BetterInventory
                 if (targetUI.inventoryPanel != null && !InventoryHelper.Same(targetUI.inventoryPanel, sourcePanel))
                     targetUI.inventoryPanel.Refresh();
 
-                var lootPanel = LootInventoryPanel.instance;
+                var lootPanel = LootInventoryPanel._instance;
                 if (lootPanel != null &&
                     lootPanel.gameObject.activeInHierarchy &&
                     InventoryHelper.Same(LootInventoryPanel.CurrentOpenInventoryData, targetBagInv))

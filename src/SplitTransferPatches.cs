@@ -56,7 +56,7 @@ namespace ZedZone.BetterInventory
                     return false;
                 }
 
-                var tradePanel = TradePanel.instance;
+                var tradePanel = TradePanel._instance;
                 if (tradePanel != null && tradePanel.gameObject != null && tradePanel.gameObject.activeSelf)
                     return true;
 
@@ -133,7 +133,7 @@ namespace ZedZone.BetterInventory
                 LootInventoryPanel lootTargetPanel = ResolveActiveLootTarget();
                 InventoryData lootTargetInv = lootTargetPanel != null ? lootTargetPanel.inventoryData : null;
 
-                var craftPanel = CraftPanel.instance;
+                var craftPanel = CraftPanel._instance;
                 bool craftOpen = craftPanel != null
                     && craftPanel.gameObject != null
                     && craftPanel.gameObject.activeInHierarchy
@@ -188,7 +188,7 @@ namespace ZedZone.BetterInventory
                     {
                         containerTargets = new List<TransferTarget>(1)
                         {
-                            new TransferTarget(mainInv, PlayerInventoryPanel.instance)
+                            new TransferTarget(mainInv, PlayerInventoryPanel._instance)
                         };
                     }
                     else
@@ -282,7 +282,7 @@ namespace ZedZone.BetterInventory
                 }
             }
 
-            var singleton = LootInventoryPanel.instance;
+            var singleton = LootInventoryPanel._instance;
             if (IsValidActiveLootPanel(singleton))
                 return singleton;
 
@@ -350,7 +350,7 @@ namespace ZedZone.BetterInventory
         private static List<TransferTarget> CollectMultiplePanelTargets(InventoryData sourceInv)
         {
             var targets = new List<TransferTarget>();
-            var multi = MultipleInventoryPanel.instance;
+            var multi = MultipleInventoryPanel._instance;
             if (multi == null || multi.gameObject == null || !multi.gameObject.activeInHierarchy)
                 return targets;
 
@@ -720,7 +720,7 @@ namespace ZedZone.BetterInventory
         {
             try
             {
-                if (SystemNotificationPanel.instance == null) return;
+                if (SystemNotificationPanel._instance == null) return;
                 string msg = null;
                 try
                 {

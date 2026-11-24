@@ -19,7 +19,7 @@ namespace ZedZone.BetterInventory
     {
         public const string PluginGuid = "zedzone.betterinventory";
         public const string PluginName = "Better Inventory";
-        public const string PluginVersion = "1.1.2";
+        public const string PluginVersion = "1.1.3";
 
         internal static ManualLogSource Logs;
 
@@ -239,7 +239,7 @@ namespace ZedZone.BetterInventory
             if (ShowNotifications == null || !ShowNotifications.Value) return;
             try
             {
-                if (SystemNotificationPanel.instance == null) return;
+                if (SystemNotificationPanel._instance == null) return;
                 SystemNotificationPanel.ShowNotificationSafe(L(zh, en), playSound);
             }
             catch (Exception ex)
