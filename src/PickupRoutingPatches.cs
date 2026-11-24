@@ -361,29 +361,6 @@ namespace ZedZone.BetterInventory
     }
 
     /// <summary>
-    /// 在玩家按 Alt+右键（只拿 1 个）或 Ctrl+右键（拿一半）从子背包/容器拆分拿取期间
-    /// 排除该源容器自身，防止拆出来的数量被 PreferExistingStack 立刻合并回原堆叠。
-    /// </summary>
-    [HarmonyPatch(typeof(BasicItemUI), nameof(BasicItemUI.TryHandleSplitQuickTransferClick))]
-    internal static class Patch_BasicItemUI_TryHandleSplitQuickTransferClick_Scope
-    {
-        [HarmonyPrefix]
-        private static void Prefix(BasicItemUI __instance, out InventoryData __state)
-        {
-            __state = PickupRoutingState.ExcludedSourceInventory;
-            var inv = __instance?.inventoryPanel?.inventoryData;
-            if (inv != null)
-                PickupRoutingState.ExcludedSourceInventory = inv;
-        }
-
-        [HarmonyFinalizer]
-        private static void Finalizer(InventoryData __state)
-        {
-            PickupRoutingState.ExcludedSourceInventory = __state;
-        }
-    }
-
-    /// <summary>
     /// 跟踪随身容器内右键拆解（BasicItemUI.Disassemble_Internal）的源容器；
     /// 在箱子或地面拆解时不介入，保持原版去向。
     /// </summary>

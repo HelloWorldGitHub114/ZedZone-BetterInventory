@@ -27,6 +27,7 @@ namespace ZedZone.BetterInventory
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<bool> ShowNotifications;
         internal static ConfigEntry<bool> VerboseLog;
+        internal static ConfigEntry<bool> FixSplitQuickTransfer;
 
         // 物品收藏设置
         internal static ConfigEntry<bool> EnableFavorites;
@@ -65,6 +66,8 @@ namespace ZedZone.BetterInventory
                 "收藏拦截或规则变更时在右下角显示系统提示。");
             VerboseLog = Config.Bind("General", "VerboseLog", false,
                 "输出详细调试日志到 BepInEx\\LogOutput.log。");
+            FixSplitQuickTransfer = Config.Bind("General", "FixSplitQuickTransfer", true,
+                "修复并增强 Alt+右键（移 1 个）与 Ctrl+右键（移一半）双向拆分快移：兼容悬浮多窗口模组（Floating Loot Windows）、支持食物/工具合并组按个拆分、支持右 Ctrl 与多口袋面板，防止异常回退导致整组移走。");
 
             EnableFavorites = Config.Bind("Favorite", "EnableFavorites", true,
                 "启用物品收藏（锁定）功能与金色星标显示。");

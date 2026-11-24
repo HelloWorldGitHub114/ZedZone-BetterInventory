@@ -289,6 +289,28 @@ namespace ZedZone.BetterInventory
         }
 
         /// <summary>
+        /// 刷新玩家随身所有容器（主背包、衣服口袋与多层套包）的缓存物品重量，保证拆分或跨包转移后负重条同步。
+        /// </summary>
+        internal static void RefreshAllCarriedWeights()
+        {
+            var cd = LocalPlayer?.characterData;
+            if (cd == null) return;
+
+            var carried = CollectPlayerCarriedInventories(cd, includeNested: true);
+            for (int i = 0; i < carried.Count; i++)
+            {
+                try
+                {
+                    carried[i]?.RefreshTotalItemWeight();
+                }
+                catch (Exception ex)
+                {
+                    Plugin.LogOnce("refresh_carried_weight", ex);
+                }
+            }
+        }
+
+        /// <summary>
         /// 获取容器在界面上展示的可读标题。
         /// </summary>
         internal static string GetContainerDisplayName(InventoryData inv, string panelTitle = null)
