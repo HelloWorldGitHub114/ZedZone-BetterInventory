@@ -31,7 +31,7 @@ namespace ZedZone.BetterInventory
 
         internal int Priority;
         internal ContainerFilterMode Mode = ContainerFilterMode.None;
-        internal bool MatchExistingTypesOnly;
+        internal bool ProtectContents;
         internal readonly HashSet<ItemType> Types = new HashSet<ItemType>();
         internal readonly HashSet<ItemFeatureType> Features = new HashSet<ItemFeatureType>();
         internal readonly HashSet<int> ItemIds = new HashSet<int>();
@@ -40,10 +40,10 @@ namespace ZedZone.BetterInventory
             Types.Count > 0 || Features.Count > 0 || ItemIds.Count > 0;
 
         internal bool HasEffectiveCustomRule =>
-            Priority != 0 || MatchExistingTypesOnly || (Mode != ContainerFilterMode.None && HasFilterCriteria);
+            Priority != 0 || ProtectContents || (Mode != ContainerFilterMode.None && HasFilterCriteria);
 
         internal bool HasActiveFilter =>
-            MatchExistingTypesOnly || (Mode != ContainerFilterMode.None && HasFilterCriteria);
+            Mode != ContainerFilterMode.None && HasFilterCriteria;
 
         internal bool IsDefault => !HasEffectiveCustomRule;
 
@@ -53,7 +53,7 @@ namespace ZedZone.BetterInventory
             {
                 Priority = Priority,
                 Mode = Mode,
-                MatchExistingTypesOnly = MatchExistingTypesOnly
+                ProtectContents = ProtectContents
             };
             foreach (var t in Types) c.Types.Add(t);
             foreach (var f in Features) c.Features.Add(f);
@@ -65,14 +65,14 @@ namespace ZedZone.BetterInventory
         {
             Priority = 0;
             Mode = ContainerFilterMode.None;
-            MatchExistingTypesOnly = false;
+            ProtectContents = false;
             Types.Clear();
             Features.Clear();
             ItemIds.Clear();
         }
 
         /// <summary>
-        /// 将规则序列化为紧凑的单行字符串（示例：v1|p=2|m=1|e=0|t=1,6|f=7|i=101,102）。
+        /// 将规则序列化为紧凑的单行字符串（示例：v1|p=1|m=1|k=1|t=1,6|f=7|i=101,102）。
         /// </summary>
         internal string Serialize()
         {
@@ -81,7 +81,8 @@ namespace ZedZone.BetterInventory
             var sb = new StringBuilder(64);
             sb.Append("v1|p=").Append(ClampPriority(Priority));
             sb.Append("|m=").Append((int)Mode);
-            sb.Append("|e=").Append(MatchExistingTypesOnly ? '1' : '0');
+            if (ProtectContents)
+                sb.Append("|k=1");
 
             if (Types.Count > 0)
             {
@@ -148,7 +149,10 @@ namespace ZedZone.BetterInventory
                             rule.Mode = (ContainerFilterMode)mode;
                         break;
                     case "e":
-                        rule.MatchExistingTypesOnly = v == "1";
+                        // 兼容旧存档字段：旧版同名开关已移除，读取时静默忽略
+                        break;
+                    case "k":
+                        rule.ProtectContents = v == "1";
                         break;
                     case "t":
                         foreach (var tok in v.Split(','))
@@ -352,25 +356,14 @@ namespace ZedZone.BetterInventory
                 return ContainerMatchKind.CatchAll;
 
             bool matchesRuleCriteria = MatchesCriteria(rule, item, attr);
-            bool matchesExisting = rule.MatchExistingTypesOnly && InventoryContainsItemId(inv, item.itemId);
 
             if (rule.Mode == ContainerFilterMode.Whitelist)
-            {
-                bool allowed = matchesRuleCriteria || matchesExisting;
-                return allowed ? ContainerMatchKind.ExplicitMatch : ContainerMatchKind.Rejected;
-            }
+                return matchesRuleCriteria ? ContainerMatchKind.ExplicitMatch : ContainerMatchKind.Rejected;
 
             if (rule.Mode == ContainerFilterMode.Blacklist)
-            {
-                if (matchesRuleCriteria)
-                    return ContainerMatchKind.Rejected;
-                if (rule.MatchExistingTypesOnly)
-                    return matchesExisting ? ContainerMatchKind.ExplicitMatch : ContainerMatchKind.Rejected;
-                return ContainerMatchKind.CatchAll;
-            }
+                return matchesRuleCriteria ? ContainerMatchKind.Rejected : ContainerMatchKind.CatchAll;
 
-            // Mode == None 且开启了“智能匹配已有物品”
-            return matchesExisting ? ContainerMatchKind.ExplicitMatch : ContainerMatchKind.Rejected;
+            return ContainerMatchKind.CatchAll;
         }
 
         internal static bool Accepts(InventoryData inv, ItemData item, ItemAttr attr)
@@ -404,21 +397,30 @@ namespace ZedZone.BetterInventory
             return false;
         }
 
-        internal static bool InventoryContainsItemId(InventoryData inv, int itemId)
+        internal static bool IsContainerProtected(InventoryData inv)
         {
-            var list = inv?.itemList;
-            if (list == null) return false;
-            for (int i = 0; i < list.Count; i++)
-            {
-                var it = list[i];
-                if (it != null && it.itemId == itemId)
-                    return true;
-            }
-            return false;
+            if (inv == null || Plugin.EnableFavorites == null || !Plugin.EnableFavorites.Value)
+                return false;
+
+            var rule = GetRule(inv);
+            return rule != null && rule.ProtectContents;
+        }
+
+        internal static bool IsUIInProtectedContainer(BasicItemUI ui)
+        {
+            if (ui == null) return false;
+            InventoryData inv = null;
+            if (ui.inventoryPanel != null)
+                inv = ui.inventoryPanel.inventoryData;
+            else if (ui.itemdata != null && ui.itemdata.inventoryData != null)
+                inv = ui.itemdata.inventoryData;
+            else
+                inv = BasicItemUI.dragDropSourceInventory;
+            return IsContainerProtected(inv);
         }
 
         /// <summary>
-        /// 生成标题栏按钮上的简短规则摘要标签（例如“筛选”/“优先·白”/“兜底”）。
+        /// 生成标题栏按钮上的简短规则摘要标签（例如“筛选”/“护·优先·白”/“兜底”）。
         /// </summary>
         internal static string BuildCompactBadgeLabel(ContainerRule rule, out bool hasCustomRule)
         {
@@ -429,7 +431,10 @@ namespace ZedZone.BetterInventory
             }
 
             hasCustomRule = true;
-            var parts = new List<string>(2);
+            var parts = new List<string>(4);
+
+            if (rule.ProtectContents)
+                parts.Add(Plugin.L("护", "Keep"));
 
             if (rule.Priority > 0)
                 parts.Add(Plugin.L("优先", "High"));
@@ -440,9 +445,6 @@ namespace ZedZone.BetterInventory
                 parts.Add(Plugin.L("白", "W"));
             else if (rule.Mode == ContainerFilterMode.Blacklist && rule.HasFilterCriteria)
                 parts.Add(Plugin.L("黑", "B"));
-
-            if (rule.MatchExistingTypesOnly)
-                parts.Add(Plugin.L("同", "="));
 
             if (parts.Count == 0)
                 return Plugin.L("筛选", "Rule");

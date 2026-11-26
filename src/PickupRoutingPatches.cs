@@ -128,7 +128,7 @@ namespace ZedZone.BetterInventory
                 for (int i = 0; i < allInventories.Count; i++)
                 {
                     var inv = allInventories[i];
-                    if (inv == null || inv.isLocked) continue;
+                    if (inv == null) continue;
 
                     // 从随身子包/口袋往外拿取时跳过该源容器自身，避免因同款堆叠或默认优先级被原地塞回
                     if (PickupRoutingState.ExcludedSourceInventory != null
@@ -279,7 +279,7 @@ namespace ZedZone.BetterInventory
                 var rule = ContainerRuleStore.GetRule(__instance);
                 if (rule == null || !rule.HasActiveFilter) return;
 
-                // 用临时伪造/属性检查（此时无 ItemData 实例，仅按 itemId/itemType/itemFeatures 与已有同类判定）
+                // 按 itemId / itemType / itemFeatures 判定手动投放是否满足严格过滤规则
                 bool matchesCriteria = rule.ItemIds.Contains(attr.itemId) || rule.Types.Contains(attr.itemType);
                 if (!matchesCriteria && rule.Features.Count > 0 && attr.itemFeatures != null)
                 {
@@ -293,20 +293,13 @@ namespace ZedZone.BetterInventory
                     }
                 }
 
-                bool matchesExisting = rule.MatchExistingTypesOnly
-                                       && ContainerRuleStore.InventoryContainsItemId(__instance, attr.itemId);
-
                 if (rule.Mode == ContainerFilterMode.Whitelist)
                 {
-                    if (!matchesCriteria && !matchesExisting) __result = false;
+                    if (!matchesCriteria) __result = false;
                 }
                 else if (rule.Mode == ContainerFilterMode.Blacklist)
                 {
-                    if (matchesCriteria || (rule.MatchExistingTypesOnly && !matchesExisting)) __result = false;
-                }
-                else if (rule.MatchExistingTypesOnly && !matchesExisting)
-                {
-                    __result = false;
+                    if (matchesCriteria) __result = false;
                 }
             }
             catch (Exception ex)
@@ -397,7 +390,7 @@ namespace ZedZone.BetterInventory
     }
 
     /// <summary>
-    /// 在随身容器拆解产物放回阶段，先通过 AddItemToCharacter 按智能匹配/过滤/优先级路由分拣；
+    /// 在随身容器拆解产物放回阶段，先通过 AddItemToCharacter 按过滤与优先级路由分拣；
     /// 若全部随身包已满或产生剩余余量，则回退原版 TryAddItem -> 掉地逻辑，确保不丢件不复制。
     /// </summary>
     [HarmonyPatch]

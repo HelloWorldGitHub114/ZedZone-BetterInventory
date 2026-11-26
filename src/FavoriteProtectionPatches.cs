@@ -65,11 +65,13 @@ namespace ZedZone.BetterInventory
 
         internal static List<StashedItem> StashFavoritesInInventories(
             IList<InventoryData> inventories,
-            int filterItemId = -1)
+            int filterItemId = -1,
+            bool allowCashInProtectedContainer = false)
         {
             if (inventories == null || inventories.Count == 0) return null;
             List<StashedItem> stashed = null;
             var seenInvs = new HashSet<IntPtr>();
+            int cashId = allowCashInProtectedContainer ? GetCashItemIdSafe() : -1;
 
             for (int i = 0; i < inventories.Count; i++)
             {
@@ -77,13 +79,112 @@ namespace ZedZone.BetterInventory
                 IntPtr ptr = InventoryHelper.Ptr(inv);
                 if (ptr == IntPtr.Zero || !seenInvs.Add(ptr)) continue;
 
+                bool invProtected = ContainerRuleStore.IsContainerProtected(inv);
                 stashed = StashMatching(
                     inv,
-                    it => ItemFavoriteManager.IsFavorite(it) && (filterItemId < 0 || it.itemId == filterItemId),
+                    it =>
+                    {
+                        if (filterItemId >= 0 && it.itemId != filterItemId) return false;
+                        if (ItemFavoriteManager.IsFavorite(it)) return true;
+                        if (!invProtected) return false;
+                        if (allowCashInProtectedContainer && cashId >= 0 && it.itemId == cashId)
+                            return false;
+                        return true;
+                    },
                     stashed);
             }
 
             return stashed;
+        }
+
+        internal static bool IsProtectedItem(InventoryData inv, ItemData item)
+        {
+            return ItemFavoriteManager.IsFavorite(item) || ContainerRuleStore.IsContainerProtected(inv);
+        }
+
+        internal static bool IsProtectedUI(BasicItemUI ui, out bool fromContainerOnly)
+        {
+            fromContainerOnly = false;
+            if (ui == null) return false;
+
+            if (ItemFavoriteManager.IsUIFavorited(ui) || ItemFavoriteManager.HasAnyFavoritedMultiDragMember(ui))
+                return true;
+
+            if (ContainerRuleStore.IsUIInProtectedContainer(ui))
+            {
+                fromContainerOnly = true;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool IsInProtectedCarriedContainer(ItemData item)
+        {
+            if (item == null) return false;
+            var cd = InventoryHelper.LocalPlayer?.characterData;
+            if (cd == null) return false;
+
+            IntPtr targetPtr = InventoryHelper.Ptr(item);
+            if (targetPtr == IntPtr.Zero) return false;
+
+            var allInvs = InventoryHelper.CollectPlayerCarriedInventories(cd, includeNested: true);
+            for (int i = 0; i < allInvs.Count; i++)
+            {
+                var inv = allInvs[i];
+                if (!ContainerRuleStore.IsContainerProtected(inv)) continue;
+                var list = inv.itemList;
+                if (list != null && ContainsByPtr(list, item))
+                    return true;
+            }
+            return false;
+        }
+
+        internal static HashSet<IntPtr> CollectProtectedCarriedItemPtrs(
+            CharacterData cd,
+            bool excludeNonFavoriteCash = false)
+        {
+            if (cd == null) return null;
+            var allInvs = InventoryHelper.CollectPlayerCarriedInventories(cd, includeNested: true);
+            if (allInvs.Count == 0) return null;
+
+            HashSet<IntPtr> set = null;
+            int cashId = excludeNonFavoriteCash ? GetCashItemIdSafe() : -1;
+
+            for (int i = 0; i < allInvs.Count; i++)
+            {
+                var inv = allInvs[i];
+                if (!ContainerRuleStore.IsContainerProtected(inv)) continue;
+                var list = inv.itemList;
+                if (list == null || list.Count == 0) continue;
+
+                for (int j = 0; j < list.Count; j++)
+                {
+                    var it = list[j];
+                    if (it == null) continue;
+                    if (excludeNonFavoriteCash && cashId >= 0 && it.itemId == cashId && !ItemFavoriteManager.IsFavorite(it))
+                        continue;
+                    IntPtr ptr = InventoryHelper.Ptr(it);
+                    if (ptr != IntPtr.Zero)
+                    {
+                        set ??= new HashSet<IntPtr>();
+                        set.Add(ptr);
+                    }
+                }
+            }
+            return set;
+        }
+
+        private static int GetCashItemIdSafe()
+        {
+            try
+            {
+                return CharacterData.cashItemId;
+            }
+            catch
+            {
+                return -1;
+            }
         }
 
         internal static void RestoreStashed(List<StashedItem> stashed)
@@ -193,7 +294,7 @@ namespace ZedZone.BetterInventory
     }
 
     // -------------------------------------------------------------------------
-    // 1. 物品收藏星标渲染与对象池清理
+    // 1. 物品收藏边框渲染与对象池清理
     // -------------------------------------------------------------------------
 
     [HarmonyPatch(typeof(BasicItemUI), nameof(BasicItemUI.RefreshItemUI))]
@@ -295,8 +396,8 @@ namespace ZedZone.BetterInventory
                 {
                     bool isFav = ItemFavoriteManager.IsUIFavorited(itemUI);
                     string label = isFav
-                        ? Plugin.L("☆ 取消收藏", "☆ Unfavorite")
-                        : Plugin.L("★ 收藏物品", "★ Favorite");
+                        ? Plugin.L("取消收藏", "Unfavorite")
+                        : Plugin.L("收藏物品", "Favorite");
 
                     BasicItemUI capturedUI = itemUI;
                     var favBtn = CloneContextButton(template, "SmartInv_CtxFav", label, () =>
@@ -313,7 +414,7 @@ namespace ZedZone.BetterInventory
 
                 // 若该物品本身带有子容器（套包/战术包/衣服口袋），额外提供“筛选与优先级”入口
                 var subInv = itemUI.itemdata.inventoryData;
-                if (subInv != null && Plugin.EnablePickupRouting != null && Plugin.EnablePickupRouting.Value)
+                if (subInv != null && ((Plugin.EnablePickupRouting != null && Plugin.EnablePickupRouting.Value) || FavoriteGuardHelper.FavoritesEnabled))
                 {
                     string ruleLabel = Plugin.L("⚙ 筛选与优先级", "⚙ Filter & Priority");
                     ItemData capturedOwner = itemUI.itemdata;
@@ -391,7 +492,7 @@ namespace ZedZone.BetterInventory
             if (a == null || b == null) return;
 
             // a 为目标容器已有堆叠，b 为待并入物品：
-            // 仅禁止“已收藏的 b”并入“未收藏的 a”，避免星标被吞；反向（新捡的 b 补满已收藏的 a）允许合并。
+            // 仅禁止“已收藏的 b”并入“未收藏的 a”，避免被未收藏堆叠覆盖；反向（新捡的 b 补满已收藏的 a）允许合并。
             if (!ItemFavoriteManager.IsFavorite(a) && ItemFavoriteManager.IsFavorite(b))
                 __result = false;
         }
@@ -445,7 +546,7 @@ namespace ZedZone.BetterInventory
                 {
                     __state.Stashed = FavoriteGuardHelper.StashMatching(
                         m_sourceInventory,
-                        ItemFavoriteManager.IsFavorite);
+                        it => FavoriteGuardHelper.IsProtectedItem(m_sourceInventory, it));
                 }
             }
             catch (Exception ex)
@@ -540,6 +641,7 @@ namespace ZedZone.BetterInventory
                 bool filterTarget = Plugin.ApplyFilterOnDepositAll != null
                                     && Plugin.ApplyFilterOnDepositAll.Value;
 
+                bool sourceProtected = protectFav && ContainerRuleStore.IsContainerProtected(m_source);
                 var targetRule = filterTarget ? ContainerRuleStore.GetRule(m_target) : null;
                 bool checkRule = targetRule != null && targetRule.HasActiveFilter;
 
@@ -547,7 +649,7 @@ namespace ZedZone.BetterInventory
 
                 __state = FavoriteGuardHelper.StashMatching(m_source, it =>
                 {
-                    if (protectFav && ItemFavoriteManager.IsFavorite(it))
+                    if (protectFav && (sourceProtected || ItemFavoriteManager.IsFavorite(it)))
                         return true;
                     if (checkRule)
                     {
@@ -588,7 +690,9 @@ namespace ZedZone.BetterInventory
 
             try
             {
-                __state = FavoriteGuardHelper.StashMatching(sourceInventory, ItemFavoriteManager.IsFavorite);
+                __state = FavoriteGuardHelper.StashMatching(
+                    sourceInventory,
+                    it => FavoriteGuardHelper.IsProtectedItem(sourceInventory, it));
             }
             catch (Exception ex)
             {
@@ -611,8 +715,8 @@ namespace ZedZone.BetterInventory
             {
                 Plugin.LogOnce("take_all_fav_refresh", ex);
             }
-            Plugin.Notify("已保留容器内的收藏物品（Alt+左键可取消收藏）",
-                          "Kept favorited item(s) in container (Alt+Click to unfavorite)");
+            Plugin.Notify("已保留容器内的受保护物品（Alt+左键或关闭整包保护后可取走）",
+                          "Kept protected item(s) in container (Alt+Click or disable container protection to take)");
         }
     }
 
@@ -621,12 +725,17 @@ namespace ZedZone.BetterInventory
     internal static class Patch_Grinder_IsBulkGrindCandidate_Fav
     {
         [HarmonyPostfix]
-        private static void Postfix(ItemData m_itemData, ref bool __result)
+        private static void Postfix(
+            TerrainObject_Furniture_Inventory_Grinder __instance,
+            ItemData m_itemData,
+            ref bool __result)
         {
             if (!__result || !FavoriteGuardHelper.FavoritesEnabled) return;
             if (Plugin.ProtectFromBulkGrind == null || !Plugin.ProtectFromBulkGrind.Value) return;
 
-            if (ItemFavoriteManager.IsFavorite(m_itemData))
+            if (ItemFavoriteManager.IsFavorite(m_itemData)
+                || ContainerRuleStore.IsContainerProtected(__instance?.objectData?.inventoryData)
+                || FavoriteGuardHelper.IsInProtectedCarriedContainer(m_itemData))
                 __result = false;
         }
     }
@@ -644,16 +753,18 @@ namespace ZedZone.BetterInventory
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromDrop == null || !Plugin.ProtectFromDrop.Value) return true;
             if (__instance == null) return true;
-            if (!ItemFavoriteManager.IsUIFavorited(__instance)
-                && !ItemFavoriteManager.HasAnyFavoritedMultiDragMember(__instance))
+            if (!FavoriteGuardHelper.IsProtectedUI(__instance, out bool fromContainer))
                 return true;
 
             try
             {
                 FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
                 __instance.CloseItemOptions();
-                Plugin.Notify("物品已收藏，无法丢弃（Alt+左键可取消收藏）",
-                              "Favorited item cannot be dropped (Alt+Click to unfavorite)");
+                if (fromContainer)
+                    Plugin.Notify("容器已开启整包保护，无法丢弃", "Protected container item cannot be dropped");
+                else
+                    Plugin.Notify("物品已收藏，无法丢弃（Alt+左键可取消收藏）",
+                                  "Favorited item cannot be dropped (Alt+Click to unfavorite)");
                 return false;
             }
             catch (Exception ex)
@@ -673,6 +784,13 @@ namespace ZedZone.BetterInventory
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromDrop == null || !Plugin.ProtectFromDrop.Value) return true;
             if (__instance == null) return true;
+
+            if (ContainerRuleStore.IsUIInProtectedContainer(__instance))
+            {
+                FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
+                Plugin.Notify("容器已开启整包保护，已取消丢弃", "Protected container; drop cancelled");
+                return false;
+            }
 
             var members = __instance.draggingGroupMembers;
             if (members == null || members.Count == 0) return true;
@@ -699,6 +817,13 @@ namespace ZedZone.BetterInventory
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromDrop == null || !Plugin.ProtectFromDrop.Value) return true;
             if (__instance == null) return true;
+
+            if (ContainerRuleStore.IsUIInProtectedContainer(__instance))
+            {
+                FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
+                Plugin.Notify("容器已开启整包保护，已取消丢弃", "Protected container; drop cancelled");
+                return false;
+            }
 
             var members = __instance.multiDragMembers;
             if (members == null || members.Count == 0) return true;
@@ -731,16 +856,18 @@ namespace ZedZone.BetterInventory
             if (__instance == null || m_targetPanel == null) return true;
             if (m_targetPanel.TryCast<NearbyItemInventoryPanel>() == null) return true;
 
-            if (!ItemFavoriteManager.IsUIFavorited(__instance)
-                && !ItemFavoriteManager.HasAnyFavoritedMultiDragMember(__instance))
+            if (!FavoriteGuardHelper.IsProtectedUI(__instance, out bool fromContainer))
                 return true;
 
             try
             {
                 FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
                 __instance.multiDropBlockedFrame = Time.frameCount;
-                Plugin.Notify("框选物品中包含已收藏物品，已取消丢弃",
-                              "Selection contains favorited item; drop cancelled");
+                if (fromContainer)
+                    Plugin.Notify("容器已开启整包保护，已取消丢弃", "Protected container; drop cancelled");
+                else
+                    Plugin.Notify("框选物品中包含已收藏物品，已取消丢弃",
+                                  "Selection contains favorited item; drop cancelled");
                 __result = true;
                 return false;
             }
@@ -760,11 +887,14 @@ namespace ZedZone.BetterInventory
         {
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromDisassemble == null || !Plugin.ProtectFromDisassemble.Value) return true;
-            if (__instance == null || !ItemFavoriteManager.IsUIFavorited(__instance)) return true;
+            if (__instance == null || !FavoriteGuardHelper.IsProtectedUI(__instance, out bool fromContainer)) return true;
 
             __instance.CloseItemOptions();
-            Plugin.Notify("物品已收藏，无法拆解（Alt+左键可取消收藏）",
-                          "Favorited item cannot be disassembled (Alt+Click to unfavorite)");
+            if (fromContainer)
+                Plugin.Notify("容器已开启整包保护，无法拆解", "Protected container item cannot be disassembled");
+            else
+                Plugin.Notify("物品已收藏，无法拆解（Alt+左键可取消收藏）",
+                              "Favorited item cannot be disassembled (Alt+Click to unfavorite)");
             return false;
         }
     }
@@ -809,8 +939,7 @@ namespace ZedZone.BetterInventory
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromSell == null || !Plugin.ProtectFromSell.Value) return true;
             if (__instance == null || dropObj == null) return true;
-            if (!ItemFavoriteManager.IsUIFavorited(__instance)
-                && !ItemFavoriteManager.HasAnyFavoritedMultiDragMember(__instance))
+            if (!FavoriteGuardHelper.IsProtectedUI(__instance, out bool fromContainer))
                 return true;
 
             try
@@ -818,8 +947,11 @@ namespace ZedZone.BetterInventory
                 if (dropObj.GetComponentInParent<TradePanel>() == null) return true;
 
                 FavoriteGuardHelper.CancelActiveDragAndRestore(__instance);
-                Plugin.Notify("物品已收藏，无法出售（Alt+左键可取消收藏）",
-                              "Favorited item cannot be sold (Alt+Click to unfavorite)");
+                if (fromContainer)
+                    Plugin.Notify("容器已开启整包保护，无法出售", "Protected container item cannot be sold");
+                else
+                    Plugin.Notify("物品已收藏，无法出售（Alt+左键可取消收藏）",
+                                  "Favorited item cannot be sold (Alt+Click to unfavorite)");
                 __result = true;
                 return false;
             }
@@ -856,9 +988,12 @@ namespace ZedZone.BetterInventory
         {
             if (!FavoriteGuardHelper.FavoritesEnabled) return true;
             if (Plugin.ProtectFromQuickTransfer == null || !Plugin.ProtectFromQuickTransfer.Value) return true;
-            if (__instance == null || !ItemFavoriteManager.IsUIFavorited(__instance)) return true;
+            if (__instance == null || !FavoriteGuardHelper.IsProtectedUI(__instance, out bool fromContainer)) return true;
 
-            Plugin.Notify("物品已收藏，已阻止快速转移", "Favorited item blocked from quick transfer");
+            if (fromContainer)
+                Plugin.Notify("容器已开启整包保护，已阻止快速转移", "Protected container blocked quick transfer");
+            else
+                Plugin.Notify("物品已收藏，已阻止快速转移", "Favorited item blocked from quick transfer");
             __result = BasicItemUI.QuickTransferResult.Rejected;
             return false;
         }
@@ -871,7 +1006,7 @@ namespace ZedZone.BetterInventory
     [HarmonyPatch(typeof(NPCInteractController), nameof(NPCInteractController.GetAllCharacterItems))]
     internal static class Patch_NPCInteractController_GetAllCharacterItems_Fav
     {
-        // Priority.Low 确保晚于 NestedInventoryFix 的 Postfix 执行，连套包内的收藏物品一并排除
+        // Priority.Low 确保晚于 NestedInventoryFix 的 Postfix 执行，连套包内的受保护物品一并排除
         [HarmonyPostfix]
         [HarmonyPriority(Priority.Low)]
         private static void Postfix(Il2CppSystem.Collections.Generic.List<ItemData> __result)
@@ -880,10 +1015,23 @@ namespace ZedZone.BetterInventory
             if (Plugin.ProtectFromSell == null || !Plugin.ProtectFromSell.Value) return;
             if (__result == null || __result.Count == 0) return;
 
+            var cd = InventoryHelper.LocalPlayer?.characterData;
+            var protectedPtrs = FavoriteGuardHelper.CollectProtectedCarriedItemPtrs(cd, excludeNonFavoriteCash: true);
+
             for (int i = __result.Count - 1; i >= 0; i--)
             {
-                if (ItemFavoriteManager.IsFavorite(__result[i]))
+                var it = __result[i];
+                if (ItemFavoriteManager.IsFavorite(it))
+                {
                     __result.RemoveAt(i);
+                    continue;
+                }
+                if (protectedPtrs != null)
+                {
+                    IntPtr ptr = InventoryHelper.Ptr(it);
+                    if (ptr != IntPtr.Zero && protectedPtrs.Contains(ptr))
+                        __result.RemoveAt(i);
+                }
             }
         }
     }
@@ -892,7 +1040,7 @@ namespace ZedZone.BetterInventory
         typeof(int))]
     internal static class Patch_NPCInteractController_GetTotalItemNumber_Fav
     {
-        // Priority.High 先临时移出全部携带容器（含套包）中的收藏物品，Priority.Low 在原版及 NestedInventoryFix 统计结束后立刻归位
+        // Priority.High 先临时移出全部携带容器（含套包）中的受保护物品，Priority.Low 在原版及 NestedInventoryFix 统计结束后立刻归位
         [HarmonyPrefix]
         [HarmonyPriority(Priority.High)]
         private static void Prefix(int itemId, ref List<FavoriteGuardHelper.StashedItem> __state)
@@ -903,7 +1051,7 @@ namespace ZedZone.BetterInventory
             var cd = InventoryHelper.LocalPlayer?.characterData;
             if (cd == null) return;
             var allInvs = InventoryHelper.CollectPlayerCarriedInventories(cd, includeNested: true);
-            __state = FavoriteGuardHelper.StashFavoritesInInventories(allInvs, itemId);
+            __state = FavoriteGuardHelper.StashFavoritesInInventories(allInvs, itemId, allowCashInProtectedContainer: true);
         }
 
         [HarmonyFinalizer]
@@ -928,7 +1076,7 @@ namespace ZedZone.BetterInventory
             var cd = InventoryHelper.LocalPlayer?.characterData;
             if (cd == null) return;
             var allInvs = InventoryHelper.CollectPlayerCarriedInventories(cd, includeNested: true);
-            __state = FavoriteGuardHelper.StashFavoritesInInventories(allInvs, itemId);
+            __state = FavoriteGuardHelper.StashFavoritesInInventories(allInvs, itemId, allowCashInProtectedContainer: true);
         }
 
         [HarmonyFinalizer]

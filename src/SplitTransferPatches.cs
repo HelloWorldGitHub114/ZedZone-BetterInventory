@@ -123,9 +123,12 @@ namespace ZedZone.BetterInventory
                 if (FavoriteGuardHelper.FavoritesEnabled
                     && Plugin.ProtectFromQuickTransfer != null
                     && Plugin.ProtectFromQuickTransfer.Value
-                    && ItemFavoriteManager.IsUIFavorited(__instance))
+                    && FavoriteGuardHelper.IsProtectedUI(__instance, out bool fromContainer))
                 {
-                    Plugin.Notify("物品已收藏，已阻止快速转移", "Favorited item blocked from quick transfer");
+                    if (fromContainer)
+                        Plugin.Notify("容器已开启整包保护，已阻止快速转移", "Protected container blocked quick transfer");
+                    else
+                        Plugin.Notify("物品已收藏，已阻止快速转移", "Favorited item blocked from quick transfer");
                     __result = true;
                     return false;
                 }
@@ -594,6 +597,7 @@ namespace ZedZone.BetterInventory
             bool protectFav = FavoriteGuardHelper.FavoritesEnabled
                 && Plugin.ProtectFromQuickTransfer != null
                 && Plugin.ProtectFromQuickTransfer.Value;
+            bool containerProtected = protectFav && ContainerRuleStore.IsContainerProtected(sourceInv);
 
             ItemData anchorAlive = null;
             IntPtr anchorPtr = InventoryHelper.Ptr(anchorItem);
@@ -607,7 +611,7 @@ namespace ZedZone.BetterInventory
                     continue;
                 if (!string.IsNullOrEmpty(m.combinationPassword))
                     continue;
-                if (protectFav && ItemFavoriteManager.IsFavorite(m))
+                if (protectFav && (containerProtected || ItemFavoriteManager.IsFavorite(m)))
                     continue;
 
                 if (mp == anchorPtr)

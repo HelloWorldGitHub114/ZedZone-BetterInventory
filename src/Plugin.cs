@@ -19,7 +19,7 @@ namespace ZedZone.BetterInventory
     {
         public const string PluginGuid = "zedzone.betterinventory";
         public const string PluginName = "Better Inventory";
-        public const string PluginVersion = "1.1.3";
+        public const string PluginVersion = "1.2.1";
 
         internal static ManualLogSource Logs;
 
@@ -70,7 +70,7 @@ namespace ZedZone.BetterInventory
                 "修复并增强 Alt+右键（移 1 个）与 Ctrl+右键（移一半）双向拆分快移：兼容悬浮多窗口模组（Floating Loot Windows）、支持食物/工具合并组按个拆分、支持右 Ctrl 与多口袋面板，防止异常回退导致整组移走。");
 
             EnableFavorites = Config.Bind("Favorite", "EnableFavorites", true,
-                "启用物品收藏（锁定）功能与金色星标显示。");
+                "启用物品收藏（锁定）与容器整包保护功能，以及半透明银白磨砂内弧角扣与星芒边缘蒙版。");
             FavoriteModifierKey = Config.Bind("Favorite", "FavoriteModifierKey", KeyCode.LeftAlt,
                 "配合左键快速切换收藏状态的修饰键（默认 LeftAlt；设为 None 则仅通过右键菜单切换）。");
             ProtectFromQuickStack = Config.Bind("Favorite", "ProtectFromQuickStack", true,

@@ -9,7 +9,7 @@
 
     <AssemblyName>BetterInventory</AssemblyName>
     <RootNamespace>ZedZone.BetterInventory</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.2.0</Version>
 
     <TargetFramework>net6.0</TargetFramework>
     <LangVersion>latest</LangVersion>

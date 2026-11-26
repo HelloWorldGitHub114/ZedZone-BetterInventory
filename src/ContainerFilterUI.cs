@@ -99,20 +99,24 @@ namespace ZedZone.BetterInventory
         private static ContainerRule s_editingRule;
 
         private static Text s_titleText;
+        private static GameObject s_helpModalGO;
+        private static RectTransform s_helpCardRT;
+        private static Text s_summaryText;
         private static Button s_prioHighBtn;
         private static Button s_prioNormalBtn;
         private static Button s_prioLowBtn;
         private static Button s_modeNoneBtn;
         private static Button s_modeWhiteBtn;
         private static Button s_modeBlackBtn;
-        private static Button s_matchExistingBtn;
-        private static Text s_matchExistingText;
+        private static Button s_protectBtn;
+        private static Text s_protectText;
         private static readonly Dictionary<ItemType, Button> s_typeButtons = new Dictionary<ItemType, Button>();
         private static readonly Dictionary<ItemFeatureType, Button> s_featureButtons = new Dictionary<ItemFeatureType, Button>();
         private static Transform s_pinnedChipsContainer;
         private static Text s_pinnedEmptyHint;
 
         internal static bool IsPopupOpen => s_popupRootGO != null && s_popupRootGO.activeSelf;
+        internal static bool IsHelpOpen => s_helpModalGO != null && s_helpModalGO.activeSelf;
 
         private static Font GetUiFont()
         {
@@ -771,6 +775,7 @@ namespace ZedZone.BetterInventory
                 s_editingRule = existing != null ? existing.Clone() : new ContainerRule();
 
                 EnsurePopupBuilt();
+                CloseHelpModal();
                 s_popupRootGO.SetActive(true);
                 s_popupCanvasGO.transform.SetAsLastSibling();
                 ClearUiSelection();
@@ -791,9 +796,38 @@ namespace ZedZone.BetterInventory
             LayoutRebuilder.ForceRebuildLayoutImmediate(s_cardRT);
         }
 
-        internal static void ClosePopup()
+        internal static void OpenHelpModal()
+        {
+            if (s_helpModalGO == null || s_popupRootGO == null || !s_popupRootGO.activeSelf)
+                return;
+            ClearUiSelection();
+            s_helpModalGO.SetActive(true);
+            s_helpModalGO.transform.SetAsLastSibling();
+            if (s_helpCardRT != null)
+            {
+                Canvas.ForceUpdateCanvases();
+                LayoutRebuilder.ForceRebuildLayoutImmediate(s_helpCardRT);
+            }
+        }
+
+        internal static void CloseHelpModal()
         {
             ClearUiSelection();
+            if (s_helpModalGO != null && s_helpModalGO.activeSelf)
+                s_helpModalGO.SetActive(false);
+        }
+
+        internal static void HandleEscapeKey()
+        {
+            if (IsHelpOpen)
+                CloseHelpModal();
+            else
+                ClosePopup();
+        }
+
+        internal static void ClosePopup()
+        {
+            CloseHelpModal();
             if (s_popupRootGO != null && s_popupRootGO.activeSelf)
                 s_popupRootGO.SetActive(false);
         }
@@ -878,26 +912,22 @@ namespace ZedZone.BetterInventory
             cardFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
             cardFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            // 1. 顶部标题栏
+            // 1. 顶部标题栏与实时效果摘要
             BuildHeader(cardRT);
+            BuildSummaryBar(cardRT);
 
-            // 2. 拾取优先级区域
+            // 2. 拾取优先级与过滤规则配置区域
             BuildPrioritySection(cardRT);
-
-            // 3. 过滤模式与智能同类开关
             BuildFilterModeSection(cardRT);
-
-            // 4. 物品大类多选网格
             BuildCategorySection(cardRT);
-
-            // 5. 常用功能标签网格
             BuildFeatureSection(cardRT);
-
-            // 6. 指定物品（一键导入容器内物品 + 芯片展示）
             BuildPinnedItemsSection(cardRT);
 
-            // 7. 底部操作栏
+            // 3. 底部操作栏
             BuildFooter(cardRT);
+
+            // 4. 独立于主弹窗之上的“? 说明”二次浮窗
+            BuildHelpModal(rootRT);
 
             s_popupRootGO.SetActive(false);
         }
@@ -925,8 +955,184 @@ namespace ZedZone.BetterInventory
             titleLE.minHeight = 26f;
             titleLE.preferredHeight = 26f;
 
+            var helpBtn = CreateStyledButton(row.transform, "HelpBtn", Plugin.L("? 说明", "? Help"), 64f, 26f, ChipOffCol, TextPrimary, 12);
+            helpBtn.onClick.AddListener((UnityAction)(() => OpenHelpModal()));
+
             var closeBtn = CreateStyledButton(row.transform, "CloseBtn", "×", 28f, 26f, ChipOffCol, TextPrimary, 16);
             closeBtn.onClick.AddListener((UnityAction)(() => ClosePopup()));
+        }
+
+        private static void BuildSummaryBar(RectTransform parent)
+        {
+            var row = CreateBoxRow(parent, "SummaryBar", new Color(0.14f, 0.14f, 0.13f, 0.96f), 36f);
+            s_summaryText = CreateLabel(row.transform, "SummaryText", "", 11, FontStyle.Normal, TextMuted, TextAnchor.MiddleLeft);
+            s_summaryText.resizeTextForBestFit = true;
+            s_summaryText.resizeTextMinSize = 9;
+            s_summaryText.resizeTextMaxSize = 11;
+            var rt = s_summaryText.GetComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = new Vector2(10f, 3f);
+            rt.offsetMax = new Vector2(-10f, -3f);
+        }
+
+        private static void BuildHelpModal(RectTransform rootRT)
+        {
+            s_helpModalGO = new GameObject("HelpModalOverlay");
+            var modalRT = s_helpModalGO.AddComponent<RectTransform>();
+            modalRT.SetParent(rootRT, false);
+            modalRT.anchorMin = Vector2.zero;
+            modalRT.anchorMax = Vector2.one;
+            modalRT.offsetMin = Vector2.zero;
+            modalRT.offsetMax = Vector2.zero;
+
+            var backdropGO = new GameObject("HelpBackdrop");
+            var backdropRT = backdropGO.AddComponent<RectTransform>();
+            backdropRT.SetParent(modalRT, false);
+            backdropRT.anchorMin = Vector2.zero;
+            backdropRT.anchorMax = Vector2.one;
+            backdropRT.offsetMin = Vector2.zero;
+            backdropRT.offsetMax = Vector2.zero;
+
+            var backdropImg = backdropGO.AddComponent<Image>();
+            backdropImg.color = new Color(0f, 0f, 0f, 0.56f);
+            var backdropBtn = backdropGO.AddComponent<Button>();
+            backdropBtn.transition = Selectable.Transition.None;
+            backdropBtn.onClick.AddListener((UnityAction)(() => CloseHelpModal()));
+
+            var helpCardGO = new GameObject("HelpCard");
+            s_helpCardRT = helpCardGO.AddComponent<RectTransform>();
+            s_helpCardRT.SetParent(modalRT, false);
+            s_helpCardRT.anchorMin = new Vector2(0.5f, 0.5f);
+            s_helpCardRT.anchorMax = new Vector2(0.5f, 0.5f);
+            s_helpCardRT.pivot = new Vector2(0.5f, 0.5f);
+            s_helpCardRT.sizeDelta = new Vector2(452f, 420f);
+
+            var cardImg = helpCardGO.AddComponent<Image>();
+            cardImg.color = PanelBgCol;
+            var cardOutline = helpCardGO.AddComponent<Outline>();
+            cardOutline.effectColor = BtnActiveBorder;
+            cardOutline.effectDistance = new Vector2(1.5f, -1.5f);
+
+            var cardLayout = helpCardGO.AddComponent<VerticalLayoutGroup>();
+            cardLayout.padding = new RectOffset(14, 14, 12, 12);
+            cardLayout.spacing = 8f;
+            cardLayout.childAlignment = TextAnchor.UpperCenter;
+            cardLayout.childControlWidth = true;
+            cardLayout.childControlHeight = true;
+            cardLayout.childForceExpandWidth = true;
+            cardLayout.childForceExpandHeight = false;
+
+            var cardFitter = helpCardGO.AddComponent<ContentSizeFitter>();
+            cardFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            cardFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            // 独立小窗顶栏：只保留唯一一个 × 按钮关闭说明浮窗
+            var headerRow = CreateBoxRow(s_helpCardRT, "HelpHeader", HeaderBgCol, 36f);
+            var h = headerRow.AddComponent<HorizontalLayoutGroup>();
+            h.padding = new RectOffset(12, 8, 5, 5);
+            h.spacing = 8f;
+            h.childAlignment = TextAnchor.MiddleLeft;
+            h.childControlWidth = true;
+            h.childControlHeight = true;
+            h.childForceExpandWidth = false;
+            h.childForceExpandHeight = false;
+
+            var helpTitle = CreateLabel(headerRow.transform, "HelpTitle", Plugin.L("容器规则说明", "Container Rule Guide"), 15, FontStyle.Bold, TextPrimary, TextAnchor.MiddleLeft);
+            var titleLE = helpTitle.gameObject.AddComponent<LayoutElement>();
+            titleLE.minWidth = 100f;
+            titleLE.preferredWidth = 100f;
+            titleLE.flexibleWidth = 1f;
+            titleLE.minHeight = 26f;
+            titleLE.preferredHeight = 26f;
+
+            var helpCloseBtn = CreateStyledButton(headerRow.transform, "HelpCloseBtn", "×", 28f, 26f, ChipOffCol, TextPrimary, 16);
+            helpCloseBtn.onClick.AddListener((UnityAction)(() => CloseHelpModal()));
+
+            bool isZh = Plugin.IsChinese();
+
+            // 1. 标记说明（避免英文空格导致 Unity 在圆点后整段换行）
+            var box1 = CreateSectionBox(s_helpCardRT, "HelpBadgesSection");
+            var t1 = CreateLabel(box1.transform, "Title", Plugin.L("标记说明", "Badge Reference"), 12, FontStyle.Bold, BtnActiveText, TextAnchor.MiddleLeft);
+            SetRowHeight(t1.gameObject, 18f);
+            var b1 = CreateLabel(
+                box1.transform,
+                "Body",
+                Plugin.L(
+                    "【护】整包保护：包内所有物品免受一键存仓/全部存入/全部拾取/丢弃/拆解/出售，不影响拾取自动入包与叠加，可与任意规则同时开启。\n" +
+                    "【白】白名单：仅收勾选的大类、功能标签或指定物品（未勾选任何项时暂按普通容器生效）。\n" +
+                    "【黑】黑名单：拒绝勾选的内容，其余物品全部照收。",
+                    "[Keep] Protect: Protects all items inside from Quick Stack, Deposit/Take All, Drop, Dismantle & Sell (pickup stacking still works); combines with any mode.\n" +
+                    "[W] Whitelist: Accepts only checked categories, tags or pinned items (acts as normal container if none checked).\n" +
+                    "[B] Blacklist: Blocks checked criteria and accepts everything else."),
+                11, FontStyle.Normal, TextPrimary, TextAnchor.UpperLeft);
+            SetRowHeight(b1.gameObject, isZh ? 82f : 108f);
+
+            // 2. 自动进包顺序
+            var box2 = CreateSectionBox(s_helpCardRT, "HelpOrderSection");
+            var t2 = CreateLabel(box2.transform, "Title", Plugin.L("自动进包顺序", "Auto-Pickup Order"), 12, FontStyle.Bold, BtnActiveText, TextAnchor.MiddleLeft);
+            SetRowHeight(t2.gameObject, 18f);
+            var b2 = CreateLabel(
+                box2.transform,
+                "Body",
+                Plugin.L(
+                    "优先装入 > 正常 > 最后兜底 → 同档位白名单专包优先于通用包 → 已有同款物品的容器自动优先堆叠 → 主背包 → 上衣 → 裤子 → 浅层套包 → 深层套包。",
+                    "High > Normal > Low -> Whitelist specialists > Catch-all -> Containers with existing stack -> Main -> Shirt -> Pants -> Shallow -> Deep bags."),
+                11, FontStyle.Normal, TextPrimary, TextAnchor.UpperLeft);
+            SetRowHeight(b2.gameObject, isZh ? 48f : 50f);
+
+            // 3. 常见配置示例
+            var box3 = CreateSectionBox(s_helpCardRT, "HelpRecipeSection");
+            var t3 = CreateLabel(box3.transform, "Title", Plugin.L("常见配置示例", "Common Examples"), 12, FontStyle.Bold, BtnActiveText, TextAnchor.MiddleLeft);
+            SetRowHeight(t3.gameObject, 18f);
+            var b3 = CreateLabel(
+                box3.transform,
+                "Body",
+                Plugin.L(
+                    "1、专用弹药/医疗袋：放入样本点「+ 导入当前容器物品」→ 勾「整包保护」→ 选「优先装入」（打空也不失效）。\n" +
+                    "2、仓库自动归类箱：选「白名单」勾选大类或导入指定物，一键堆叠与全部存入会自动遵守规则。\n" +
+                    "3、小技巧：已默认开启跨包同款优先堆叠；勾选任意大类/标签或导入物品时，会自动从「关闭筛选」切到「白名单」。",
+                    "1) Ammo/Med Pouch: Put sample inside -> click \"+ Import Current Items\" -> check Protect -> set High priority (works even when empty).\n" +
+                    "2) Storage Sorting Box: Use Whitelist + Categories or Import; Quick Stack & Deposit All obey rules.\n" +
+                    "3) Tip: Cross-bag existing-stack preference is on by default; picking criteria while Filter Off auto-switches to Whitelist."),
+                11, FontStyle.Normal, TextPrimary, TextAnchor.UpperLeft);
+            SetRowHeight(b3.gameObject, isZh ? 92f : 108f);
+
+            s_helpModalGO.SetActive(false);
+        }
+
+        private static string BuildLiveRuleSummary(ContainerRule rule)
+        {
+            if (rule == null)
+                return Plugin.L("不过滤，所有物品按默认顺序收纳", "No filter; all items route in default order");
+
+            string prio = rule.Priority > 0
+                ? Plugin.L("优先装入", "High priority")
+                : (rule.Priority < 0 ? Plugin.L("最后兜底", "Fallback") : Plugin.L("正常顺序", "Normal priority"));
+
+            string filterDesc;
+            if (rule.Mode == ContainerFilterMode.Whitelist)
+            {
+                filterDesc = rule.HasFilterCriteria
+                    ? Plugin.L("仅收已勾选的白名单物品", "Accepts only checked Whitelist items")
+                    : Plugin.L("白名单未勾选条件，暂按普通容器照常收纳", "Whitelist has no criteria yet; accepts all items");
+            }
+            else if (rule.Mode == ContainerFilterMode.Blacklist)
+            {
+                filterDesc = rule.HasFilterCriteria
+                    ? Plugin.L("排除已勾选的黑名单，其余物品照常收纳", "Excludes checked Blacklist; accepts everything else")
+                    : Plugin.L("黑名单未勾选排除项，暂按普通容器照常收纳", "Blacklist has no criteria yet; accepts all items");
+            }
+            else
+            {
+                filterDesc = Plugin.L("不过滤，所有物品按默认顺序收纳", "No filter; all items route in default order");
+            }
+
+            string protectSuffix = rule.ProtectContents
+                ? Plugin.L("；整包受保护（免存仓/误卖/误丢）", "; Contents protected (safe from QuickStack/Sell/Drop)")
+                : string.Empty;
+
+            return $"{prio}；{filterDesc}{protectSuffix}";
         }
 
         private static void BuildPrioritySection(RectTransform parent)
@@ -1000,12 +1206,18 @@ namespace ZedZone.BetterInventory
                 CommitRuleChange();
             }));
 
-            s_matchExistingBtn = CreateFlexButton(box.transform, "MatchExistingBtn", "", 26f, 12);
-            s_matchExistingText = s_matchExistingBtn.GetComponentInChildren<Text>(true);
-            s_matchExistingBtn.onClick.AddListener((UnityAction)(() =>
+            s_protectBtn = CreateFlexButton(box.transform, "ProtectContentsBtn", "", 26f, 11);
+            s_protectText = s_protectBtn.GetComponentInChildren<Text>(true);
+            if (s_protectText != null)
+            {
+                s_protectText.resizeTextForBestFit = true;
+                s_protectText.resizeTextMinSize = 9;
+                s_protectText.resizeTextMaxSize = 11;
+            }
+            s_protectBtn.onClick.AddListener((UnityAction)(() =>
             {
                 if (s_editingRule == null) return;
-                s_editingRule.MatchExistingTypesOnly = !s_editingRule.MatchExistingTypesOnly;
+                s_editingRule.ProtectContents = !s_editingRule.ProtectContents;
                 CommitRuleChange();
             }));
         }
@@ -1195,6 +1407,12 @@ namespace ZedZone.BetterInventory
             if (s_titleText != null)
                 s_titleText.text = $"{s_editingTitle}  —  {Plugin.L("筛选与优先级", "Filter & Priority")}";
 
+            if (s_summaryText != null)
+            {
+                s_summaryText.text = Plugin.L("当前效果：", "Active Effect: ") + BuildLiveRuleSummary(s_editingRule);
+                s_summaryText.color = s_editingRule.HasEffectiveCustomRule ? BtnActiveText : TextMuted;
+            }
+
             SetChipColor(s_prioHighBtn, s_editingRule.Priority > 0, ChipOnAmber);
             SetChipColor(s_prioNormalBtn, s_editingRule.Priority == 0, ChipOnCyan);
             SetChipColor(s_prioLowBtn, s_editingRule.Priority < 0, ChipOnSlate);
@@ -1203,13 +1421,13 @@ namespace ZedZone.BetterInventory
             SetChipColor(s_modeWhiteBtn, s_editingRule.Mode == ContainerFilterMode.Whitelist, ChipOnAmber);
             SetChipColor(s_modeBlackBtn, s_editingRule.Mode == ContainerFilterMode.Blacklist, DangerCol);
 
-            if (s_matchExistingBtn != null && s_matchExistingText != null)
+            if (s_protectBtn != null && s_protectText != null)
             {
-                bool on = s_editingRule.MatchExistingTypesOnly;
-                SetChipColor(s_matchExistingBtn, on, ChipOnCyan);
-                s_matchExistingText.text = on
-                    ? Plugin.L("✓ 智能匹配：自动收入容器内已有同款物品", "✓ Auto-match: accept items already inside")
-                    : Plugin.L("☐ 智能匹配：自动收入容器内已有同款物品", "☐ Auto-match: accept items already inside");
+                bool keepOn = s_editingRule.ProtectContents;
+                SetChipColor(s_protectBtn, keepOn, ChipOnAmber);
+                s_protectText.text = keepOn
+                    ? Plugin.L("✓ 整包保护：包内物品免受一键存仓/全部存入/出售/丢弃/拆解（不影响自动拾取堆叠）", "✓ Protect Container: keep all items safe from QuickStack/Deposit/Sell/Drop (pickup stacking still works)")
+                    : Plugin.L("☐ 整包保护：开启后包内全部物品视同收藏保护（不影响自动拾取堆叠）", "☐ Protect Container: protect all items inside like favorites (pickup stacking still works)");
             }
 
             bool filterActive = s_editingRule.Mode != ContainerFilterMode.None;
@@ -1533,7 +1751,7 @@ namespace ZedZone.BetterInventory
         private static void Prefix()
         {
             if (ContainerFilterUI.IsPopupOpen && GameInputManager.GetKeyDown(KeyCode.Escape))
-                ContainerFilterUI.ClosePopup();
+                ContainerFilterUI.HandleEscapeKey();
         }
     }
 
